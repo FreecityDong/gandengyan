@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>象山干瞪眼大厅</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <title>象山牌类大厅</title>
+    <link rel="stylesheet" href="/styles.css?v=20260223b" />
   </head>
   <body>
     <div class="app-shell">
       <header class="top-bar">
         <div class="title-wrap">
-          <h1>象山干瞪眼</h1>
+          <h1>象山牌类大厅</h1>
           <p>局域网大厅</p>
         </div>
         <div class="conn-pill" id="connPill">连接中...</div>
@@ -28,6 +28,13 @@
           </div>
 
           <div class="actions split">
+            <div class="field-row">
+              <label for="createGameType">创建房间玩法</label>
+              <select id="createGameType">
+                <option value="gandengyan">干瞪眼</option>
+                <option value="sevens">接龙（Sevens）</option>
+              </select>
+            </div>
             <button id="createRoomBtn" class="primary">创建房间</button>
             <div class="join-box">
               <input id="joinRoomInput" maxlength="6" placeholder="输入房间码" />
@@ -68,6 +75,6 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/lobby.js"></script>
+    <script src="/lobby.js?v=20260223b"></script>
   </body>
 </html>

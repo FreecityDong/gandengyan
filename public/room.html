@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>象山干瞪眼房间</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <title>象山牌桌房间</title>
+    <link rel="stylesheet" href="/styles.css?v=20260223b" />
   </head>
   <body>
     <div class="app-shell">
       <header class="top-bar">
         <div class="title-wrap">
-          <h1>象山干瞪眼</h1>
+          <h1 id="gameTitleText">象山牌桌</h1>
           <p>房间对局</p>
         </div>
         <div class="room-head-right">
@@ -28,9 +28,11 @@
 
           <div class="status-grid">
             <div>我: <span id="nicknameText">-</span></div>
+            <div>玩法: <span id="gameTypeText">-</span></div>
             <div>状态: <span id="roomStatusText">-</span></div>
-            <div>炸弹次数 N: <span id="bombCountText">0</span></div>
-            <div>牌堆: <span id="deckCountText">0</span></div>
+            <div><span id="bombCountLabel">炸弹次数 N</span>: <span id="bombCountText">0</span></div>
+            <div><span id="deckCountLabel">牌堆</span>: <span id="deckCountText">0</span></div>
+            <div>我的弃牌分: <span id="myDiscardScoreText">0</span></div>
             <div>当前回合: <span id="turnText">-</span></div>
           </div>
 
@@ -40,17 +42,19 @@
           </div>
 
           <div class="actions">
-            <button id="startGameBtn" class="primary">房主开始游戏</button>
+            <button id="startGameBtn" class="primary">房主开始本局</button>
             <button id="nextRoundBtn">开始下一局</button>
           </div>
         </section>
 
         <section class="panel" id="tablePanel">
-          <h2>牌桌</h2>
+          <h2 id="tableTitleText">牌桌</h2>
           <div class="last-play" id="lastPlayBox">暂无出牌</div>
+          <div id="sevensBoard" class="sevens-board hidden"></div>
 
           <div class="actions">
             <button id="playCardsBtn" class="primary">出牌</button>
+            <button id="discardBtn">弃牌</button>
             <button id="passBtn">过牌</button>
             <button id="clearSelectionBtn" class="ghost">清除选择</button>
           </div>
@@ -58,6 +62,11 @@
           <div>
             <h3>我的手牌</h3>
             <div id="handCards" class="hand-cards"></div>
+          </div>
+
+          <div id="myDiscardPanel" class="my-discard-panel hidden">
+            <h3>我的弃牌区（仅自己可见）</h3>
+            <div id="myDiscardCards" class="discard-cards"></div>
           </div>
         </section>
 
@@ -95,6 +104,6 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/room.js"></script>
+    <script src="/room.js?v=20260223b"></script>
   </body>
 </html>

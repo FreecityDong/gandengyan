@@ -4,6 +4,7 @@ const els = {
   connPill: document.getElementById("connPill"),
   nicknameInput: document.getElementById("nicknameInput"),
   randomNicknameBtn: document.getElementById("randomNicknameBtn"),
+  createGameType: document.getElementById("createGameType"),
   createRoomBtn: document.getElementById("createRoomBtn"),
   joinRoomInput: document.getElementById("joinRoomInput"),
   joinRoomBtn: document.getElementById("joinRoomBtn"),
@@ -82,6 +83,14 @@ function statusText(status) {
   return map[status] || status;
 }
 
+function gameTypeText(gameType) {
+  const map = {
+    gandengyan: "干瞪眼",
+    sevens: "接龙",
+  };
+  return map[gameType] || gameType || "未知";
+}
+
 function renderRoomList() {
   const rooms = state.rooms || [];
   els.roomCountText.textContent = `${rooms.length} 个房间`;
@@ -105,8 +114,9 @@ function renderRoomList() {
     item.innerHTML = `
       <div class="room-main">
         <div class="room-id">${room.roomId}</div>
-        <div class="room-meta">房主: ${room.ownerNickname} | 状态: ${statusText(room.status)}</div>
-        <div class="room-meta">人数: ${room.onlineCount}/${room.playerCount}（总上限 ${room.maxPlayers}）</div>
+        <div class="room-meta">玩法: ${room.gameLabel || gameTypeText(room.gameType)} | 状态: ${statusText(room.status)}</div>
+        <div class="room-meta">房主: ${room.ownerNickname}</div>
+        <div class="room-meta">人数: ${room.onlineCount}/${room.playerCount}（建议 ${room.minPlayers}-${room.maxPlayers}）</div>
       </div>
       <button class="room-join-btn" ${canJoin ? "" : "disabled"}>${joinBtnText}</button>
     `;
@@ -136,8 +146,9 @@ els.createRoomBtn.addEventListener("click", () => {
   state.mode = "create";
   state.pendingJoinRoomId = "";
   persistNickname(nickname);
-  socket.emit("lobby:create_room", { nickname });
-  log("正在创建房间...", { level: "ok", category: "action" });
+  const gameType = String(els.createGameType.value || "gandengyan");
+  socket.emit("lobby:create_room", { nickname, gameType });
+  log(`正在创建房间（${gameTypeText(gameType)}）...`, { level: "ok", category: "action" });
 });
 
 els.joinRoomBtn.addEventListener("click", () => {

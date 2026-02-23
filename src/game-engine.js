@@ -610,6 +610,8 @@ function toRoomState(room, viewerId) {
   const view = {
     selfPlayerId: viewerId,
     roomId: room.id,
+    roomType: room.gameType || "gandengyan",
+    gameType: room.gameType || "gandengyan",
     status: room.status,
     actionSeq: room.actionSeq,
     ownerPlayerId: room.ownerPlayerId,

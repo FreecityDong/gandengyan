@@ -29,7 +29,8 @@ p {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -59,6 +60,15 @@ button.ghost {
 }
 
 input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #0f1a2e;
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+select {
   width: 100%;
   border: 1px solid var(--line);
   background: #0f1a2e;
@@ -341,6 +351,10 @@ input {
   color: var(--text-dim);
 }
 
+.hidden {
+  display: none !important;
+}
+
 .last-play-meta {
   color: var(--text-dim);
   margin-bottom: 10px;
@@ -354,14 +368,92 @@ input {
   min-height: 84px;
 }
 
+.card-stack {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0;
+  overflow-x: auto;
+  min-height: 84px;
+  padding: 2px 2px 8px;
+}
+
+.card-stack .poker-card {
+  z-index: 1;
+}
+
+.card-stack .poker-card + .poker-card {
+  margin-left: -40px;
+}
+
+.card-stack .poker-card:hover,
+.card-stack .poker-card.selected {
+  z-index: 8;
+}
+
+.card-stack.compact-stack .poker-card + .poker-card {
+  margin-left: -34px;
+}
+
+.sevens-board {
+  margin-top: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: linear-gradient(180deg, #10203a, #0f1a2e);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sevens-suit-col {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  background: #0b1629;
+}
+
+.sevens-suit-title {
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.sevens-suit-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
 .hand-cards {
   margin-top: 10px;
   display: flex;
   flex-wrap: nowrap;
-  gap: 8px;
+  gap: 0;
   overflow-x: auto;
   padding: 4px 2px 12px;
   scrollbar-width: thin;
+}
+
+.hand-cards .poker-card + .poker-card {
+  margin-left: -48px;
+}
+
+.hand-cards .poker-card:hover,
+.hand-cards .poker-card.selected {
+  z-index: 10;
+}
+
+.my-discard-panel {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: #0d1a30;
+}
+
+.discard-cards {
+  margin-top: 8px;
+  min-height: 86px;
 }
 
 .hand-cards::-webkit-scrollbar {
@@ -613,6 +705,10 @@ button.poker-card.selected {
     min-height: 70px;
   }
 
+  .sevens-board {
+    grid-template-columns: 1fr;
+  }
+
   .poker-card {
     width: 58px;
     height: 86px;
@@ -629,6 +725,22 @@ button.poker-card.selected {
 
   .poker-card.joker .center {
     font-size: 14px;
+  }
+
+  .hand-cards .poker-card + .poker-card {
+    margin-left: -42px;
+  }
+
+  .card-stack.compact-stack .poker-card + .poker-card {
+    margin-left: -32px;
+  }
+
+  .poker-card .corner {
+    font-size: 10px;
+  }
+
+  .poker-card .corner.top {
+    left: 4px;
   }
 
   .message-box {

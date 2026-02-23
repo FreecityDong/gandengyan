@@ -1,6 +1,51 @@
 const socket = io();
 
 const STORAGE_KEY_NICKNAME = "qiexigua:nickname";
+const GAME_TYPES = {
+  GANDENGYAN: "gandengyan",
+  SEVENS: "sevens",
+};
+
+const GAME_META = {
+  [GAME_TYPES.GANDENGYAN]: {
+    label: "干瞪眼",
+    title: "象山干瞪眼",
+    tableTitle: "干瞪眼牌桌",
+    minPlayers: 3,
+  },
+  [GAME_TYPES.SEVENS]: {
+    label: "接龙",
+    title: "象山接龙",
+    tableTitle: "接龙牌桌",
+    minPlayers: 2,
+  },
+};
+
+const SUIT_SYMBOL = {
+  S: "♠",
+  H: "♥",
+  C: "♣",
+  D: "♦",
+};
+
+const SEVENS_NEXT_LOWER = {
+  "7": "6",
+  "6": "5",
+  "5": "4",
+  "4": "3",
+  "3": "2",
+  "2": "A",
+};
+
+const SEVENS_NEXT_HIGHER = {
+  "7": "8",
+  "8": "9",
+  "9": "10",
+  "10": "J",
+  J: "Q",
+  Q: "K",
+  K: "A",
+};
 
 function parseRoomIdFromLocation() {
   const parts = window.location.pathname.split("/").filter(Boolean);
@@ -34,20 +79,30 @@ const state = {
 
 const els = {
   connPill: document.getElementById("connPill"),
+  gameTitleText: document.getElementById("gameTitleText"),
+  tableTitleText: document.getElementById("tableTitleText"),
   nicknameText: document.getElementById("nicknameText"),
   roomCodeText: document.getElementById("roomCodeText"),
+  gameTypeText: document.getElementById("gameTypeText"),
   roomStatusText: document.getElementById("roomStatusText"),
+  bombCountLabel: document.getElementById("bombCountLabel"),
   bombCountText: document.getElementById("bombCountText"),
+  deckCountLabel: document.getElementById("deckCountLabel"),
   deckCountText: document.getElementById("deckCountText"),
+  myDiscardScoreText: document.getElementById("myDiscardScoreText"),
   turnText: document.getElementById("turnText"),
   playerList: document.getElementById("playerList"),
   startGameBtn: document.getElementById("startGameBtn"),
   nextRoundBtn: document.getElementById("nextRoundBtn"),
   lastPlayBox: document.getElementById("lastPlayBox"),
+  sevensBoard: document.getElementById("sevensBoard"),
   playCardsBtn: document.getElementById("playCardsBtn"),
+  discardBtn: document.getElementById("discardBtn"),
   passBtn: document.getElementById("passBtn"),
   clearSelectionBtn: document.getElementById("clearSelectionBtn"),
   handCards: document.getElementById("handCards"),
+  myDiscardPanel: document.getElementById("myDiscardPanel"),
+  myDiscardCards: document.getElementById("myDiscardCards"),
   logLevelFilter: document.getElementById("logLevelFilter"),
   logCategoryFilter: document.getElementById("logCategoryFilter"),
   messageBox: document.getElementById("messageBox"),
@@ -56,6 +111,17 @@ const els = {
   settlementList: document.getElementById("settlementList"),
   closeSettlementBtn: document.getElementById("closeSettlementBtn"),
 };
+
+function currentGameType() {
+  const type = String(state.room && (state.room.gameType || state.room.roomType) || "").trim().toLowerCase();
+  if (type === GAME_TYPES.SEVENS) return GAME_TYPES.SEVENS;
+  if (type === GAME_TYPES.GANDENGYAN) return GAME_TYPES.GANDENGYAN;
+  return null;
+}
+
+function isSevens() {
+  return currentGameType() === GAME_TYPES.SEVENS;
+}
 
 function applyLogFilter() {
   const level = els.logLevelFilter.value;
@@ -80,14 +146,8 @@ function log(message, options = {}) {
   applyLogFilter();
 }
 
-const SUIT_SYMBOL = {
-  S: "♠",
-  H: "♥",
-  C: "♣",
-  D: "♦",
-};
-
 function cardLabel(card) {
+  if (!card) return "?";
   if (card.rank === "SJ") return "小王";
   if (card.rank === "BJ") return "大王";
   const suit = SUIT_SYMBOL[card.suit] || card.suit || "";
@@ -248,7 +308,7 @@ function canBuildSequence(nonJokerCounts, jokers, length, unitSize) {
   return { ok: false };
 }
 
-function analyzeSelection(cards) {
+function analyzeGdySelection(cards) {
   if (!cards.length) return { ok: false, reason: "至少选择一张牌" };
 
   const sorted = [...cards].sort((a, b) => rankValueFromCard(a) - rankValueFromCard(b));
@@ -297,6 +357,33 @@ function canBeatLocal(play, lastPlay) {
   return play.strength > (lastPlay.strength || 0);
 }
 
+function canPlaySevensCard(card) {
+  if (!state.room || !state.room.game || !state.room.game.board) return false;
+  const suitState = state.room.game.board[card.suit];
+  if (!suitState) return false;
+
+  if (!suitState.opened) {
+    return card.rank === "7";
+  }
+
+  const nextLow = SEVENS_NEXT_LOWER[suitState.lowEndRank] || null;
+  const nextHigh = SEVENS_NEXT_HIGHER[suitState.highEndRank] || null;
+  return card.rank === nextLow || card.rank === nextHigh;
+}
+
+function analyzeSevensSelection(cards) {
+  if (cards.length !== 1) {
+    return { ok: false, reason: "接龙每次只能选择 1 张牌" };
+  }
+
+  const card = cards[0];
+  if (!canPlaySevensCard(card)) {
+    return { ok: false, reason: "该牌不能接在当前端点" };
+  }
+
+  return { ok: true };
+}
+
 function getMyPlayer() {
   if (!state.room || !state.myPlayerId) return null;
   return state.room.players.find((p) => p.id === state.myPlayerId) || null;
@@ -331,9 +418,13 @@ function renderPlayers() {
     if (player.isOwner) tags.push("房主");
     if (!player.connected) tags.push("离线");
 
+    const scoreLine = isSevens()
+      ? `手牌:${player.handCount == null ? "-" : player.handCount} 本局弃牌分:${player.discardScore || 0} 累计弃牌分:${player.totalScore || 0}`
+      : `手牌:${player.handCount == null ? "-" : player.handCount} 累计:${player.totalScore}`;
+
     li.innerHTML = `
       <span>${player.nickname} ${tags.length ? `(${tags.join("/")})` : ""}</span>
-      <span>手牌:${player.handCount == null ? "-" : player.handCount} 累计:${player.totalScore}</span>
+      <span>${scoreLine}</span>
     `;
 
     els.playerList.appendChild(li);
@@ -351,6 +442,11 @@ function renderHand() {
     if (!validIds.has(id)) state.selected.delete(id);
   });
 
+  if (isSevens() && state.selected.size > 1) {
+    const first = [...state.selected][0];
+    state.selected = new Set(first ? [first] : []);
+  }
+
   hand.forEach((card) => {
     const btn = createCardElement(card, {
       selected: state.selected.has(card.id),
@@ -358,19 +454,27 @@ function renderHand() {
     });
 
     btn.addEventListener("click", () => {
-      if (state.selected.has(card.id)) {
+      if (isSevens()) {
+        if (state.selected.has(card.id)) {
+          state.selected.clear();
+        } else {
+          state.selected.clear();
+          state.selected.add(card.id);
+        }
+      } else if (state.selected.has(card.id)) {
         state.selected.delete(card.id);
       } else {
         state.selected.add(card.id);
       }
       renderHand();
+      renderButtons();
     });
 
     els.handCards.appendChild(btn);
   });
 }
 
-function renderLastPlay() {
+function renderGdyLastPlay() {
   if (!state.room || !state.room.game || !state.room.game.lastPlay) {
     els.lastPlayBox.classList.add("empty");
     els.lastPlayBox.innerHTML = `
@@ -400,25 +504,206 @@ function renderLastPlay() {
   const cardsWrap = document.createElement("div");
   cardsWrap.className = "table-cards";
   (last.cards || []).forEach((card) => {
-    cardsWrap.appendChild(
-      createCardElement(card, {
-        compact: true,
-      }),
-    );
+    cardsWrap.appendChild(createCardElement(card, { compact: true }));
   });
 
   els.lastPlayBox.appendChild(meta);
   els.lastPlayBox.appendChild(cardsWrap);
 }
 
+function getSevensShownRanks(suitState) {
+  if (!suitState || !suitState.opened) return [];
+  const lowPath = [];
+  let lowCursor = "7";
+  lowPath.push(lowCursor);
+  while (lowCursor !== suitState.lowEndRank) {
+    lowCursor = SEVENS_NEXT_LOWER[lowCursor];
+    if (!lowCursor) break;
+    lowPath.push(lowCursor);
+  }
+
+  const highPath = [];
+  let highCursor = "7";
+  highPath.push(highCursor);
+  while (highCursor !== suitState.highEndRank) {
+    highCursor = SEVENS_NEXT_HIGHER[highCursor];
+    if (!highCursor) break;
+    highPath.push(highCursor);
+  }
+
+  return [...lowPath.reverse(), ...highPath.slice(1)];
+}
+
+function renderSevensLastAction() {
+  if (!state.room || !state.room.game) {
+    els.lastPlayBox.classList.add("empty");
+    els.lastPlayBox.innerHTML = `
+      <div class="last-play-meta">等待开局</div>
+      <div class="table-cards"></div>
+    `;
+    return;
+  }
+
+  const lastAction = state.room.game.lastAction;
+  if (!lastAction) {
+    els.lastPlayBox.classList.add("empty");
+    els.lastPlayBox.innerHTML = `
+      <div class="last-play-meta">暂无动作（优先出 7 开列）</div>
+      <div class="table-cards"></div>
+    `;
+    return;
+  }
+
+  els.lastPlayBox.classList.remove("empty");
+  els.lastPlayBox.innerHTML = "";
+
+  const who = getPlayerNameById(lastAction.playerId);
+  const actionText = lastAction.actionType === "discard" ? "弃牌" : "出牌";
+  const meta = document.createElement("div");
+  meta.className = "last-play-meta";
+  if (lastAction.actionType === "discard" && lastAction.cardHidden) {
+    meta.textContent = `${who} ${actionText}（具体牌仅本人可见）`;
+  } else {
+    meta.textContent = `${who} ${actionText}`;
+  }
+
+  const cardsWrap = document.createElement("div");
+  cardsWrap.className = "table-cards";
+  if (lastAction.card) {
+    cardsWrap.appendChild(createCardElement(lastAction.card, { compact: true }));
+  } else {
+    const hidden = document.createElement("div");
+    hidden.className = "last-play-meta";
+    hidden.textContent = "弃牌已发生";
+    cardsWrap.appendChild(hidden);
+  }
+
+  els.lastPlayBox.appendChild(meta);
+  els.lastPlayBox.appendChild(cardsWrap);
+}
+
+function renderSevensBoard() {
+  if (!isSevens() || !state.room || !state.room.game) {
+    els.sevensBoard.classList.add("hidden");
+    els.sevensBoard.innerHTML = "";
+    return;
+  }
+
+  const board = state.room.game.board || {};
+  const suits = ["S", "H", "C", "D"];
+
+  els.sevensBoard.classList.remove("hidden");
+  els.sevensBoard.innerHTML = "";
+
+  suits.forEach((suit) => {
+    const suitState = board[suit] || { opened: false, lowEndRank: null, highEndRank: null };
+    const col = document.createElement("div");
+    col.className = "sevens-suit-col";
+
+    const title = document.createElement("div");
+    title.className = "sevens-suit-title";
+    title.textContent = `${SUIT_SYMBOL[suit] || suit} ${suitState.opened ? "已开启" : "未开启"}`;
+
+    const cardsWrap = document.createElement("div");
+    cardsWrap.className = "table-cards card-stack compact-stack";
+
+    if (!suitState.opened) {
+      const hint = document.createElement("div");
+      hint.className = "last-play-meta";
+      hint.textContent = "需先出 7";
+      cardsWrap.appendChild(hint);
+    } else {
+      const ranks = getSevensShownRanks(suitState);
+      ranks.forEach((rank) => {
+        cardsWrap.appendChild(
+          createCardElement(
+            {
+              id: `${suit}-${rank}`,
+              suit,
+              rank,
+            },
+            { compact: true },
+          ),
+        );
+      });
+    }
+
+    const meta = document.createElement("div");
+    meta.className = "sevens-suit-meta";
+    if (!suitState.opened) {
+      meta.textContent = "端点: - / -";
+    } else {
+      const low = suitState.lowEndRank || "-";
+      const high = suitState.highEndRank || "-";
+      const nextLow = suitState.nextLowRank || "封口";
+      const nextHigh = suitState.nextHighRank || "封口";
+      meta.textContent = `端点: ${low} / ${high} | 下一张: ${nextLow} / ${nextHigh}`;
+    }
+
+    col.appendChild(title);
+    col.appendChild(cardsWrap);
+    col.appendChild(meta);
+    els.sevensBoard.appendChild(col);
+  });
+}
+
+function renderLastPlay() {
+  if (isSevens()) {
+    renderSevensLastAction();
+    return;
+  }
+  renderGdyLastPlay();
+}
+
+function renderMyDiscardArea() {
+  if (!isSevens() || !state.room || !state.room.game) {
+    els.myDiscardPanel.classList.add("hidden");
+    els.myDiscardCards.innerHTML = "";
+    return;
+  }
+
+  const pile = state.room.game.yourDiscardPile || [];
+  els.myDiscardPanel.classList.remove("hidden");
+  els.myDiscardCards.innerHTML = "";
+  els.myDiscardCards.className = "discard-cards card-stack compact-stack";
+
+  if (pile.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "last-play-meta";
+    empty.textContent = "暂无弃牌";
+    els.myDiscardCards.appendChild(empty);
+    return;
+  }
+
+  pile.forEach((card) => {
+    els.myDiscardCards.appendChild(createCardElement(card, { compact: true }));
+  });
+}
+
 function renderRoomMeta() {
+  const gameType = currentGameType();
+  const meta = gameType
+    ? (GAME_META[gameType] || GAME_META[GAME_TYPES.GANDENGYAN])
+    : {
+      label: "-",
+      title: "象山牌桌",
+      tableTitle: "牌桌",
+      minPlayers: 2,
+    };
+
   els.nicknameText.textContent = state.nickname || "-";
+  els.gameTitleText.textContent = meta.title;
+  els.tableTitleText.textContent = meta.tableTitle;
+  els.gameTypeText.textContent = meta.label;
 
   if (!state.room) {
     els.roomCodeText.textContent = state.roomId || "-";
     els.roomStatusText.textContent = "连接中";
+    els.bombCountLabel.textContent = gameType === GAME_TYPES.SEVENS ? "已开列数" : "炸弹次数 N";
     els.bombCountText.textContent = "0";
+    els.deckCountLabel.textContent = gameType === GAME_TYPES.SEVENS ? "可出牌" : "牌堆";
     els.deckCountText.textContent = "0";
+    els.myDiscardScoreText.textContent = "0";
     els.turnText.textContent = "-";
     return;
   }
@@ -427,12 +712,32 @@ function renderRoomMeta() {
   els.roomStatusText.textContent = state.room.status;
 
   if (state.room.game) {
-    els.bombCountText.textContent = String(state.room.game.bombCountN);
-    els.deckCountText.textContent = String(state.room.game.deckCount);
+    if (gameType === GAME_TYPES.SEVENS) {
+      const board = state.room.game.board || {};
+      const opened = Object.values(board).filter((it) => it && it.opened).length;
+      const legalCount = Array.isArray(state.room.game.legalPlayCardIds)
+        ? state.room.game.legalPlayCardIds.length
+        : 0;
+      els.bombCountLabel.textContent = "已开列数";
+      els.bombCountText.textContent = String(opened);
+      els.deckCountLabel.textContent = "可出牌";
+      els.deckCountText.textContent = String(legalCount);
+      els.myDiscardScoreText.textContent = String(state.room.game.yourDiscardScore || 0);
+    } else {
+      els.bombCountLabel.textContent = "炸弹次数 N";
+      els.bombCountText.textContent = String(state.room.game.bombCountN);
+      els.deckCountLabel.textContent = "牌堆";
+      els.deckCountText.textContent = String(state.room.game.deckCount);
+      els.myDiscardScoreText.textContent = "0";
+    }
+
     els.turnText.textContent = getPlayerNameById(state.room.game.turnPlayerId);
   } else {
+    els.bombCountLabel.textContent = gameType === GAME_TYPES.SEVENS ? "已开列数" : "炸弹次数 N";
     els.bombCountText.textContent = "0";
+    els.deckCountLabel.textContent = gameType === GAME_TYPES.SEVENS ? "可出牌" : "牌堆";
     els.deckCountText.textContent = "0";
+    els.myDiscardScoreText.textContent = "0";
     els.turnText.textContent = "-";
   }
 }
@@ -440,43 +745,89 @@ function renderRoomMeta() {
 function renderButtons() {
   const my = getMyPlayer();
   const room = state.room;
+  const gameType = currentGameType() || GAME_TYPES.GANDENGYAN;
+  const meta = GAME_META[gameType] || GAME_META[GAME_TYPES.GANDENGYAN];
 
   const isOwner = Boolean(my && my.isOwner);
   const playing = Boolean(room && room.status === "playing" && room.game);
   const settlement = Boolean(room && room.status === "settlement");
   const isMyTurn = Boolean(playing && room.game.turnPlayerId === state.myPlayerId);
 
-  els.startGameBtn.disabled = !(room && isOwner && (room.status === "waiting" || room.status === "ready" || room.status === "settlement") && room.players.length >= 3);
+  els.startGameBtn.disabled = !(
+    room
+    && isOwner
+    && (room.status === "waiting" || room.status === "ready" || room.status === "settlement")
+    && room.players.length >= meta.minPlayers
+  );
   els.nextRoundBtn.disabled = !(room && isOwner && settlement);
 
-  els.playCardsBtn.disabled = !(playing && isMyTurn);
-  els.passBtn.disabled = !(playing && isMyTurn && room.game.lastPlay);
-  els.clearSelectionBtn.disabled = !(playing && state.selected.size > 0);
+  if (gameType === GAME_TYPES.SEVENS) {
+    const mustDiscard = Boolean(playing && room.game.mustDiscard);
+    els.playCardsBtn.textContent = "出牌";
+    els.discardBtn.classList.remove("hidden");
+    els.passBtn.classList.add("hidden");
+
+    els.playCardsBtn.disabled = !(playing && isMyTurn && state.selected.size === 1 && !mustDiscard);
+    els.discardBtn.disabled = !(playing && isMyTurn && state.selected.size === 1 && mustDiscard);
+    els.passBtn.disabled = true;
+    els.clearSelectionBtn.disabled = !(playing && state.selected.size > 0);
+  } else {
+    els.playCardsBtn.textContent = "出牌";
+    els.discardBtn.classList.add("hidden");
+    els.passBtn.classList.remove("hidden");
+
+    els.playCardsBtn.disabled = !(playing && isMyTurn && state.selected.size > 0);
+    els.discardBtn.disabled = true;
+    els.passBtn.disabled = !(playing && isMyTurn && room.game.lastPlay);
+    els.clearSelectionBtn.disabled = !(playing && state.selected.size > 0);
+  }
 }
 
 function renderAll() {
   renderRoomMeta();
   renderPlayers();
   renderLastPlay();
+  renderSevensBoard();
   renderHand();
+  renderMyDiscardArea();
   renderButtons();
 }
 
 function showSettlement(payload) {
   state.latestSettlement = payload;
-
-  const winnerName = getPlayerNameById(payload.winnerId);
-  els.settlementWinnerText.textContent = `赢家: ${winnerName} | 炸弹次数 N = ${payload.bombCountN}`;
+  const gameType = currentGameType();
 
   els.settlementList.innerHTML = "";
-  payload.scores.forEach((item) => {
-    const li = document.createElement("li");
-    li.className = "settlement-item";
 
-    const plus = item.delta >= 0 ? "+" : "";
-    li.textContent = `${item.nickname} | 余牌:${item.remaining} | 留王:${item.hasJoker ? "是" : "否"} | 留炸弹:${item.hasBomb ? "是" : "否"} | 未出牌:${item.hasNoPlay ? "是" : "否"} | 倍数:x${item.multiplier || 1} | 分数变化:${plus}${item.delta}`;
-    els.settlementList.appendChild(li);
-  });
+  if (gameType === GAME_TYPES.SEVENS) {
+    const winners = Array.isArray(payload.winners) ? payload.winners : [];
+    const winnerNames = winners.length > 0
+      ? winners.map((id) => getPlayerNameById(id)).join(" / ")
+      : "-";
+    const winningScore = Number.isFinite(payload.winningScore) ? payload.winningScore : "-";
+
+    els.settlementWinnerText.textContent = `最低弃牌分: ${winningScore} | 赢家: ${winnerNames}`;
+
+    (payload.scores || []).forEach((item) => {
+      const li = document.createElement("li");
+      li.className = "settlement-item";
+
+      li.textContent = `${item.nickname} | 弃牌:${item.discardCount} 张 | 弃牌分:${item.discardTotal} | 名次:${item.rank} | 累计弃牌分 +${item.delta}`;
+      els.settlementList.appendChild(li);
+    });
+  } else {
+    const winnerName = getPlayerNameById(payload.winnerId);
+    els.settlementWinnerText.textContent = `赢家: ${winnerName} | 炸弹次数 N = ${payload.bombCountN}`;
+
+    (payload.scores || []).forEach((item) => {
+      const li = document.createElement("li");
+      li.className = "settlement-item";
+
+      const plus = item.delta >= 0 ? "+" : "";
+      li.textContent = `${item.nickname} | 余牌:${item.remaining} | 留王:${item.hasJoker ? "是" : "否"} | 留炸弹:${item.hasBomb ? "是" : "否"} | 未出牌:${item.hasNoPlay ? "是" : "否"} | 倍数:x${item.multiplier || 1} | 分数变化:${plus}${item.delta}`;
+      els.settlementList.appendChild(li);
+    });
+  }
 
   els.settlementModal.classList.remove("hidden");
 }
@@ -508,8 +859,27 @@ els.playCardsBtn.addEventListener("click", () => {
 
   const hand = state.room.game.yourHand || [];
   const selectedCards = hand.filter((card) => state.selected.has(card.id));
-  const play = analyzeSelection(selectedCards);
 
+  if (isSevens()) {
+    if (state.room.game.mustDiscard) {
+      log("当前无合法可出牌，请使用“弃牌”", { level: "error", category: "action" });
+      return;
+    }
+
+    const play = analyzeSevensSelection(selectedCards);
+    if (!play.ok) {
+      log(`本地校验失败: ${play.reason}`, { level: "error", category: "action" });
+      return;
+    }
+
+    socket.emit("game:play_cards", {
+      roomId: state.room.roomId,
+      cards: [...state.selected],
+    });
+    return;
+  }
+
+  const play = analyzeGdySelection(selectedCards);
   if (!play.ok) {
     log(`本地校验失败: ${play.reason}`, { level: "error", category: "action" });
     return;
@@ -523,6 +893,21 @@ els.playCardsBtn.addEventListener("click", () => {
   socket.emit("game:play_cards", {
     roomId: state.room.roomId,
     cards: [...state.selected],
+  });
+});
+
+els.discardBtn.addEventListener("click", () => {
+  if (!state.room || !state.room.game || !isSevens()) return;
+
+  const picked = [...state.selected];
+  if (picked.length !== 1) {
+    log("弃牌需选择 1 张手牌", { level: "error", category: "action" });
+    return;
+  }
+
+  socket.emit("game:discard_card", {
+    roomId: state.room.roomId,
+    card: picked[0],
   });
 });
 
@@ -569,8 +954,18 @@ socket.on("room:state", (payload) => {
 });
 
 socket.on("game:dealt", (payload) => {
-  const dealer = getPlayerNameById(payload.dealerId);
+  const gameType = currentGameType();
   const starter = getPlayerNameById(payload.turnPlayerId);
+
+  if (gameType === GAME_TYPES.SEVENS) {
+    log(`发牌完成，先手: ${starter || payload.turnPlayerId}`, {
+      level: "ok",
+      category: "game",
+    });
+    return;
+  }
+
+  const dealer = getPlayerNameById(payload.dealerId);
   log(`发牌完成，庄家: ${dealer || payload.dealerId}，先手: ${starter || payload.turnPlayerId}`, {
     level: "ok",
     category: "game",
@@ -580,11 +975,31 @@ socket.on("game:dealt", (payload) => {
 socket.on("game:played", (payload) => {
   const who = getPlayerNameById(payload.playerId);
   const cards = (payload.cards || []).map(cardLabel).join(" ");
-  log(`${who} 出牌: ${cards}`, { level: "info", category: "game" });
+
+  if (isSevens()) {
+    log(`${who} 出牌: ${cards}`, { level: "info", category: "game" });
+  } else {
+    log(`${who} 出牌: ${cards}`, { level: "info", category: "game" });
+  }
 
   if (payload.playerId === state.myPlayerId) {
     state.selected.clear();
   }
+  renderButtons();
+});
+
+socket.on("game:discarded", (payload) => {
+  const who = getPlayerNameById(payload.playerId);
+  if (payload.revealed && payload.card) {
+    log(`${who} 弃牌: ${cardLabel(payload.card)}`, { level: "info", category: "game" });
+  } else {
+    log(`${who} 弃牌（具体牌仅本人可见）`, { level: "info", category: "game" });
+  }
+
+  if (payload.playerId === state.myPlayerId) {
+    state.selected.clear();
+  }
+  renderButtons();
 });
 
 socket.on("game:round_end", (payload) => {
@@ -617,6 +1032,21 @@ socket.on("game:auto_pass", (payload) => {
   } else {
     log(`${who} 离线超时，系统自动过牌`, { level: "error", category: "game" });
   }
+});
+
+socket.on("game:auto_action", (payload) => {
+  const who = getPlayerNameById(payload.playerId);
+  if (payload.actionType === "discard") {
+    if (payload.revealed && payload.card) {
+      log(`${who} 离线超时，系统托管弃牌 ${cardLabel(payload.card)}`, { level: "error", category: "game" });
+    } else {
+      log(`${who} 离线超时，系统托管弃牌（具体牌仅本人可见）`, { level: "error", category: "game" });
+    }
+    return;
+  }
+
+  const cards = (payload.cards || []).map(cardLabel).join(" ");
+  log(`${who} 离线超时，系统托管出牌 ${cards}`, { level: "error", category: "game" });
 });
 
 socket.on("game:settlement", (payload) => {

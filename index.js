@@ -3,13 +3,8 @@ const path = require("path");
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const {
-  startGame,
-  playCards,
-  passTurn,
-  toRoomState,
-  serializeCard,
-} = require("./src/game-engine");
+const gandengyanEngine = require("./src/game-engine");
+const sevensEngine = require("./src/sevens-engine");
 
 const PORT = Number(process.env.PORT || 3000);
 const RECONNECT_TTL_MS = 3 * 60 * 1000;
@@ -18,12 +13,36 @@ const AUTO_PASS_TIMEOUT_MS = 15 * 1000;
 const SCORE_DATA_DIR = path.join(__dirname, "data");
 const SCORE_DATA_FILE = path.join(SCORE_DATA_DIR, "room-totals.json");
 const MAX_PERSISTED_ROOMS = 100;
+const GAME_TYPES = {
+  GANDENGYAN: "gandengyan",
+  SEVENS: "sevens",
+};
+const ROOM_RULES = {
+  [GAME_TYPES.GANDENGYAN]: {
+    minPlayers: 3,
+    maxPlayers: 5,
+    label: "干瞪眼",
+  },
+  [GAME_TYPES.SEVENS]: {
+    minPlayers: 2,
+    maxPlayers: 6,
+    label: "接龙",
+  },
+};
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "public"), {
+  etag: false,
+  lastModified: false,
+  setHeaders: (res) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+  },
+}));
 
 app.get("/room/:roomId", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "room.html"));
@@ -74,6 +93,7 @@ function savePersistedRoomTotals() {
 }
 
 function snapshotRoomTotals(room) {
+  const isSevens = room.gameType === GAME_TYPES.SEVENS;
   const players = room.players
     .map((p) => ({
       playerId: p.id,
@@ -81,10 +101,11 @@ function snapshotRoomTotals(room) {
       total: room.totals[p.id] || 0,
       connected: p.connected,
     }))
-    .sort((a, b) => b.total - a.total);
+    .sort((a, b) => (isSevens ? a.total - b.total : b.total - a.total));
 
   return {
     roomId: room.id,
+    gameType: room.gameType || GAME_TYPES.GANDENGYAN,
     updatedAt: Date.now(),
     roundsPlayed: room.roundsPlayed || 0,
     players,
@@ -103,6 +124,31 @@ function persistRoomTotalsSnapshot(room) {
   persistedRoomTotals.sort((a, b) => b.updatedAt - a.updatedAt);
   persistedRoomTotals = persistedRoomTotals.slice(0, MAX_PERSISTED_ROOMS);
   savePersistedRoomTotals();
+}
+
+function normalizeGameType(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  if (value === GAME_TYPES.SEVENS) return GAME_TYPES.SEVENS;
+  return GAME_TYPES.GANDENGYAN;
+}
+
+function getRoomRules(roomOrType) {
+  const gameType = typeof roomOrType === "string"
+    ? normalizeGameType(roomOrType)
+    : normalizeGameType(roomOrType && roomOrType.gameType);
+  return ROOM_RULES[gameType] || ROOM_RULES[GAME_TYPES.GANDENGYAN];
+}
+
+function getPlayersRangeText(roomOrType) {
+  const rules = getRoomRules(roomOrType);
+  return `${rules.minPlayers}-${rules.maxPlayers}`;
+}
+
+function getEngineByRoom(room) {
+  if (normalizeGameType(room && room.gameType) === GAME_TYPES.SEVENS) {
+    return sevensEngine;
+  }
+  return gandengyanEngine;
 }
 
 function normalizeNickname(raw) {
@@ -155,7 +201,8 @@ function getRoomBySocket(socketId) {
 function refreshRoomStatus(room) {
   if (room.status === "playing") return;
   if (room.status === "settlement") return;
-  room.status = room.players.length >= 3 ? "ready" : "waiting";
+  const rules = getRoomRules(room);
+  room.status = room.players.length >= rules.minPlayers ? "ready" : "waiting";
 }
 
 function transferOwnerIfNeeded(room) {
@@ -179,7 +226,43 @@ function handleAutoPassTimeout(roomId, expectedPlayerId) {
   const turnPlayer = findPlayer(room, expectedPlayerId);
   if (!turnPlayer || turnPlayer.connected) return;
 
-  const result = passTurn(room, expectedPlayerId, { force: true });
+  const engine = getEngineByRoom(room);
+
+  if (normalizeGameType(room.gameType) === GAME_TYPES.SEVENS) {
+    const result = engine.autoAct(room, expectedPlayerId);
+    if (!result.ok) return;
+
+    incrementActionSeq(room);
+    for (const player of room.players) {
+      if (!player.connected || !player.socketId) continue;
+      const target = io.sockets.sockets.get(player.socketId);
+      if (!target) continue;
+
+      const canSeeDiscardCard = result.actionType === "discard" && player.id === expectedPlayerId;
+      target.emit("game:auto_action", {
+        playerId: expectedPlayerId,
+        timeoutMs: AUTO_PASS_TIMEOUT_MS,
+        actionType: result.actionType,
+        cards: (result.played || []).map(engine.serializeCard),
+        card: canSeeDiscardCard && result.discarded ? engine.serializeCard(result.discarded) : null,
+        revealed: canSeeDiscardCard,
+        nextTurnPlayerId: result.nextTurnPlayerId,
+        gameEnded: Boolean(result.gameEnded),
+      });
+    }
+
+    if (result.gameEnded) {
+      room.roundsPlayed = (room.roundsPlayed || 0) + 1;
+      persistRoomTotalsSnapshot(room);
+      emitSettlement(room, result.settlement);
+    }
+
+    emitRoomState(room);
+    scheduleAutoPassIfNeeded(room);
+    return;
+  }
+
+  const result = engine.passTurn(room, expectedPlayerId, { force: true });
   if (!result.ok) return;
 
   incrementActionSeq(room);
@@ -227,11 +310,12 @@ function emitError(socket, message, code = "BAD_REQUEST") {
 }
 
 function emitRoomState(room) {
+  const engine = getEngineByRoom(room);
   for (const player of room.players) {
     if (!player.connected || !player.socketId) continue;
     const target = io.sockets.sockets.get(player.socketId);
     if (!target) continue;
-    target.emit("room:state", toRoomState(room, player.id));
+    target.emit("room:state", engine.toRoomState(room, player.id));
   }
 }
 
@@ -250,7 +334,7 @@ function emitRoundEnd(room, roundEndResult) {
       roundWinnerId: roundEndResult.roundWinnerId,
       drawByPlayerId: roundEndResult.roundWinnerId,
       drawTaken: Boolean(roundEndResult.drawCard),
-      drawResult: canSeeDrawCard ? serializeCard(roundEndResult.drawCard) : null,
+      drawResult: canSeeDrawCard ? gandengyanEngine.serializeCard(roundEndResult.drawCard) : null,
       nextTurnPlayerId: roundEndResult.nextTurnPlayerId,
     });
   }
@@ -260,17 +344,22 @@ function buildRoomListSnapshot() {
   const result = [];
 
   for (const room of rooms.values()) {
+    const gameType = normalizeGameType(room.gameType);
+    const rules = getRoomRules(gameType);
     const owner = findPlayer(room, room.ownerPlayerId);
     const onlineCount = room.players.filter((p) => p.connected).length;
     const playerCount = room.players.length;
-    const canJoin = room.status !== "playing" && playerCount < 5;
+    const canJoin = room.status !== "playing" && playerCount < rules.maxPlayers;
 
     result.push({
       roomId: room.id,
+      gameType,
+      gameLabel: rules.label,
       status: room.status,
       playerCount,
       onlineCount,
-      maxPlayers: 5,
+      maxPlayers: rules.maxPlayers,
+      minPlayers: rules.minPlayers,
       ownerNickname: owner ? owner.nickname : "-",
       canJoin,
       createdAt: room.createdAt,
@@ -338,6 +427,7 @@ io.on("connection", (socket) => {
 
   socket.on("lobby:create_room", (payload = {}) => {
     const nickname = normalizeNickname(payload.nickname);
+    const gameType = normalizeGameType(payload.gameType);
     if (!nickname) {
       emitError(socket, "昵称不能为空");
       return;
@@ -353,6 +443,7 @@ io.on("connection", (socket) => {
 
     const room = {
       id: roomId,
+      gameType,
       ownerPlayerId: player.id,
       players: [player],
       status: "waiting",
@@ -425,8 +516,9 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (room.players.length >= 5) {
-      emitError(socket, "房间已满（最多 5 人）");
+    const rules = getRoomRules(room);
+    if (room.players.length >= rules.maxPlayers) {
+      emitError(socket, `房间已满（最多 ${rules.maxPlayers} 人）`);
       return;
     }
 
@@ -465,8 +557,9 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (room.players.length < 3 || room.players.length > 5) {
-      emitError(socket, "人数必须为 3-5 人");
+    const rules = getRoomRules(room);
+    if (room.players.length < rules.minPlayers || room.players.length > rules.maxPlayers) {
+      emitError(socket, `人数必须为 ${getPlayersRangeText(room)} 人`);
       return;
     }
     if (room.players.some((p) => !p.connected)) {
@@ -475,7 +568,8 @@ io.on("connection", (socket) => {
     }
 
     try {
-      const result = startGame(room);
+      const engine = getEngineByRoom(room);
+      const result = engine.startGame(room);
       incrementActionSeq(room);
 
       for (const player of room.players) {
@@ -483,12 +577,13 @@ io.on("connection", (socket) => {
         const target = io.sockets.sockets.get(player.socketId);
         if (!target) continue;
 
-        const playerView = toRoomState(room, player.id);
+        const playerView = engine.toRoomState(room, player.id);
         target.emit("game:dealt", {
           yourHand: playerView.game.yourHand,
           turnPlayerId: result.turnPlayerId,
           seatOrder: result.seatOrder,
-          dealerId: result.dealerId,
+          dealerId: result.dealerId || null,
+          gameType: normalizeGameType(room.gameType),
         });
       }
 
@@ -516,7 +611,8 @@ io.on("connection", (socket) => {
       ? payload.cards.map((id) => String(id))
       : [];
 
-    const result = playCards(room, ref.playerId, cardIds);
+    const engine = getEngineByRoom(room);
+    const result = engine.playCards(room, ref.playerId, cardIds);
     if (!result.ok) {
       emitError(socket, result.reason || "出牌失败");
       return;
@@ -526,11 +622,64 @@ io.on("connection", (socket) => {
 
     io.to(room.id).emit("game:played", {
       playerId: ref.playerId,
-      cards: result.played.map(serializeCard),
+      actionType: result.actionType || "play",
+      cards: (result.played || []).map(engine.serializeCard),
+      card: result.discarded ? engine.serializeCard(result.discarded) : null,
+      side: result.side || null,
       nextTurnPlayerId: result.nextTurnPlayerId,
     });
 
-      if (result.gameEnded) {
+    if (result.gameEnded) {
+      room.roundsPlayed = (room.roundsPlayed || 0) + 1;
+      persistRoomTotalsSnapshot(room);
+      emitSettlement(room, result.settlement);
+    }
+
+    emitRoomState(room);
+    scheduleAutoPassIfNeeded(room);
+  });
+
+  socket.on("game:discard_card", (payload = {}) => {
+    const ref = getRoomBySocket(socket.id);
+    if (!ref) {
+      emitError(socket, "请先加入房间");
+      return;
+    }
+
+    const room = ref.room;
+    if (room.status !== "playing") {
+      emitError(socket, "当前不在对局中");
+      return;
+    }
+
+    if (normalizeGameType(room.gameType) !== GAME_TYPES.SEVENS) {
+      emitError(socket, "当前玩法不支持弃牌操作");
+      return;
+    }
+
+    const cardId = String(payload.card || "").trim();
+    const result = sevensEngine.discardCard(room, ref.playerId, cardId);
+    if (!result.ok) {
+      emitError(socket, result.reason || "弃牌失败");
+      return;
+    }
+
+    incrementActionSeq(room);
+    for (const player of room.players) {
+      if (!player.connected || !player.socketId) continue;
+      const target = io.sockets.sockets.get(player.socketId);
+      if (!target) continue;
+
+      const canSeeDiscardCard = player.id === ref.playerId;
+      target.emit("game:discarded", {
+        playerId: ref.playerId,
+        card: canSeeDiscardCard && result.discarded ? sevensEngine.serializeCard(result.discarded) : null,
+        revealed: canSeeDiscardCard,
+        nextTurnPlayerId: result.nextTurnPlayerId,
+      });
+    }
+
+    if (result.gameEnded) {
       room.roundsPlayed = (room.roundsPlayed || 0) + 1;
       persistRoomTotalsSnapshot(room);
       emitSettlement(room, result.settlement);
@@ -553,7 +702,8 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const result = passTurn(room, ref.playerId);
+    const engine = getEngineByRoom(room);
+    const result = engine.passTurn(room, ref.playerId);
     if (!result.ok) {
       emitError(socket, result.reason || "过牌失败");
       return;
@@ -561,7 +711,7 @@ io.on("connection", (socket) => {
 
     incrementActionSeq(room);
 
-    if (result.roundEnd) {
+    if (normalizeGameType(room.gameType) === GAME_TYPES.GANDENGYAN && result.roundEnd) {
       emitRoundEnd(room, result);
     }
 
@@ -595,9 +745,15 @@ io.on("connection", (socket) => {
       emitError(socket, "有玩家离线，暂不能开始下一局");
       return;
     }
+    const rules = getRoomRules(room);
+    if (room.players.length < rules.minPlayers || room.players.length > rules.maxPlayers) {
+      emitError(socket, `人数必须为 ${getPlayersRangeText(room)} 人`);
+      return;
+    }
 
     try {
-      const result = startGame(room);
+      const engine = getEngineByRoom(room);
+      const result = engine.startGame(room);
       incrementActionSeq(room);
 
       for (const player of room.players) {
@@ -605,12 +761,13 @@ io.on("connection", (socket) => {
         const target = io.sockets.sockets.get(player.socketId);
         if (!target) continue;
 
-        const playerView = toRoomState(room, player.id);
+        const playerView = engine.toRoomState(room, player.id);
         target.emit("game:dealt", {
           yourHand: playerView.game.yourHand,
           turnPlayerId: result.turnPlayerId,
           seatOrder: result.seatOrder,
-          dealerId: result.dealerId,
+          dealerId: result.dealerId || null,
+          gameType: normalizeGameType(room.gameType),
         });
       }
 
@@ -654,5 +811,5 @@ setInterval(() => {
 
 server.listen(PORT, () => {
   // eslint-disable-next-line no-console
-  console.log(`干瞪眼服务已启动: http://0.0.0.0:${PORT}`);
+  console.log(`牌类大厅服务已启动: http://0.0.0.0:${PORT}`);
 });
