@@ -1,5 +1,30 @@
 [
   {
+    "roomId": "THZ3J4",
+    "updatedAt": 1771814162859,
+    "roundsPlayed": 3,
+    "players": [
+      {
+        "playerId": "PAS25YQNK",
+        "nickname": "野火-阿强87",
+        "total": 90,
+        "connected": true
+      },
+      {
+        "playerId": "PQKKPH2SG",
+        "nickname": "青瓷-大师45",
+        "total": -28,
+        "connected": true
+      },
+      {
+        "playerId": "PYREXDQ3D",
+        "nickname": "赤兔-老炮64",
+        "total": -62,
+        "connected": true
+      }
+    ]
+  },
+  {
     "roomId": "753PAB",
     "updatedAt": 1771812092788,
     "roundsPlayed": 2,

@@ -359,6 +359,7 @@ io.on("connection", (socket) => {
       game: null,
       totals: { [player.id]: 0 },
       lastWinnerId: null,
+      lastSeatOrder: null,
       roundsPlayed: 0,
       autoPassTimer: null,
       actionSeq: 0,

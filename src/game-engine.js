@@ -367,7 +367,12 @@ function startGame(room) {
 
   const deck = createDeck();
   const playerIds = room.players.map((p) => p.id);
-  const seatOrder = shuffle([...playerIds]);
+  const previousSeatOrder = Array.isArray(room.lastSeatOrder) ? room.lastSeatOrder : null;
+  const hasSamePlayers = previousSeatOrder
+    && previousSeatOrder.length === playerIds.length
+    && previousSeatOrder.every((id) => playerIds.includes(id));
+
+  const seatOrder = hasSamePlayers ? [...previousSeatOrder] : shuffle([...playerIds]);
 
   const dealerId = room.lastWinnerId && seatOrder.includes(room.lastWinnerId)
     ? room.lastWinnerId
@@ -399,6 +404,7 @@ function startGame(room) {
     bombCountN: 0,
     actionLogs: [],
   };
+  room.lastSeatOrder = [...seatOrder];
 
   room.status = "playing";
 
