@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>象山干瞪眼大厅</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="top-bar">
+        <div class="title-wrap">
+          <h1>象山干瞪眼</h1>
+          <p>局域网大厅</p>
+        </div>
+        <div class="conn-pill" id="connPill">连接中...</div>
+      </header>
+
+      <main class="layout lobby-layout">
+        <section class="panel" id="lobbyPanel">
+          <h2>创建或加入房间</h2>
+          <div class="field-row">
+            <label for="nicknameInput">昵称</label>
+            <div class="inline">
+              <input id="nicknameInput" maxlength="16" placeholder="输入昵称" />
+              <button id="randomNicknameBtn" class="ghost">随机昵称</button>
+            </div>
+          </div>
+
+          <div class="actions split">
+            <button id="createRoomBtn" class="primary">创建房间</button>
+            <div class="join-box">
+              <input id="joinRoomInput" maxlength="6" placeholder="输入房间码" />
+              <button id="joinRoomBtn">加入房间</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="roomListPanel">
+          <div class="room-list-head">
+            <h2>房间列表</h2>
+            <span id="roomCountText" class="muted">0 个房间</span>
+          </div>
+          <div id="roomList" class="room-list"></div>
+        </section>
+
+        <section class="panel" id="logPanel">
+          <div class="log-header">
+            <h2>消息</h2>
+            <div class="message-tools">
+              <select id="logLevelFilter" aria-label="消息级别筛选">
+                <option value="all">全部级别</option>
+                <option value="ok">成功</option>
+                <option value="info">普通</option>
+                <option value="error">错误</option>
+              </select>
+              <select id="logCategoryFilter" aria-label="消息分类筛选">
+                <option value="all">全部分类</option>
+                <option value="lobby">大厅</option>
+                <option value="action">操作</option>
+                <option value="system">系统</option>
+              </select>
+            </div>
+          </div>
+          <div id="messageBox" class="message-box"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/lobby.js"></script>
+  </body>
+</html>

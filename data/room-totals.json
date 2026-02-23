@@ -1,0 +1,52 @@
+[
+  {
+    "roomId": "753PAB",
+    "updatedAt": 1771812092788,
+    "roundsPlayed": 2,
+    "players": [
+      {
+        "playerId": "PS4QXUCX4",
+        "nickname": "青竹-阿星86",
+        "total": 30,
+        "connected": true
+      },
+      {
+        "playerId": "PX8AEFER9",
+        "nickname": "青竹-船长36",
+        "total": -9,
+        "connected": true
+      },
+      {
+        "playerId": "P4FEU7UN7",
+        "nickname": "黑桃-猎手99",
+        "total": -21,
+        "connected": true
+      }
+    ]
+  },
+  {
+    "roomId": "LZMXY4",
+    "updatedAt": 1771788788552,
+    "roundsPlayed": 1,
+    "players": [
+      {
+        "playerId": "PZBHQ678N",
+        "nickname": "黑桃-阿星43",
+        "total": 9,
+        "connected": true
+      },
+      {
+        "playerId": "P83J8SXF2",
+        "nickname": "海风-大师95",
+        "total": -4,
+        "connected": true
+      },
+      {
+        "playerId": "P8X9B46VJ",
+        "nickname": "晨光-小将78",
+        "total": -5,
+        "connected": true
+      }
+    ]
+  }
+]

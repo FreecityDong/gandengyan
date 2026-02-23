@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>象山干瞪眼房间</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="top-bar">
+        <div class="title-wrap">
+          <h1>象山干瞪眼</h1>
+          <p>房间对局</p>
+        </div>
+        <div class="room-head-right">
+          <div class="conn-pill" id="connPill">连接中...</div>
+          <a class="back-link" href="/">返回大厅</a>
+        </div>
+      </header>
+
+      <main class="layout room-layout">
+        <section class="panel" id="roomPanel">
+          <div class="room-header">
+            <h2>房间</h2>
+            <div class="room-code">房间码: <span id="roomCodeText">-</span></div>
+          </div>
+
+          <div class="status-grid">
+            <div>我: <span id="nicknameText">-</span></div>
+            <div>状态: <span id="roomStatusText">-</span></div>
+            <div>炸弹次数 N: <span id="bombCountText">0</span></div>
+            <div>牌堆: <span id="deckCountText">0</span></div>
+            <div>当前回合: <span id="turnText">-</span></div>
+          </div>
+
+          <div>
+            <h3>玩家列表</h3>
+            <ul id="playerList" class="player-list"></ul>
+          </div>
+
+          <div class="actions">
+            <button id="startGameBtn" class="primary">房主开始游戏</button>
+            <button id="nextRoundBtn">开始下一局</button>
+          </div>
+        </section>
+
+        <section class="panel" id="tablePanel">
+          <h2>牌桌</h2>
+          <div class="last-play" id="lastPlayBox">暂无出牌</div>
+
+          <div class="actions">
+            <button id="playCardsBtn" class="primary">出牌</button>
+            <button id="passBtn">过牌</button>
+            <button id="clearSelectionBtn" class="ghost">清除选择</button>
+          </div>
+
+          <div>
+            <h3>我的手牌</h3>
+            <div id="handCards" class="hand-cards"></div>
+          </div>
+        </section>
+
+        <section class="panel" id="logPanel">
+          <div class="log-header">
+            <h2>消息</h2>
+            <div class="message-tools">
+              <select id="logLevelFilter" aria-label="消息级别筛选">
+                <option value="all">全部级别</option>
+                <option value="ok">成功</option>
+                <option value="info">普通</option>
+                <option value="error">错误</option>
+              </select>
+              <select id="logCategoryFilter" aria-label="消息分类筛选">
+                <option value="all">全部分类</option>
+                <option value="game">对局</option>
+                <option value="action">操作</option>
+                <option value="settlement">结算</option>
+                <option value="system">系统</option>
+              </select>
+            </div>
+          </div>
+          <div id="messageBox" class="message-box"></div>
+        </section>
+      </main>
+    </div>
+
+    <div id="settlementModal" class="modal hidden">
+      <div class="modal-card">
+        <h2>本局结算</h2>
+        <p id="settlementWinnerText">-</p>
+        <ul id="settlementList" class="settlement-list"></ul>
+        <button id="closeSettlementBtn">关闭</button>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/room.js"></script>
+  </body>
+</html>
